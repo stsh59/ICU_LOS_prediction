@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 # coding: utf-8
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["XGBOOST_NUM_THREADS"] = "1"
 
 import time
 import zipfile
-import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,13 +36,13 @@ from xgboost import XGBRegressor
 # Function to load datasets
 def load_data():
     # Primary Admissions information
-    df = pd.read_csv('/home/jovyan/parallel_final_project/mimicIII/ADMISSIONS/ADMISSIONS_sorted.csv')
+    df = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/ADMISSIONS/ADMISSIONS_sorted.csv')
     # Patient specific info such as gender
-    df_pat = pd.read_csv('/home/jovyan/parallel_final_project/mimicIII/PATIENTS/PATIENTS_sorted.csv')
+    df_pat = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/PATIENTS/PATIENTS_sorted.csv')
     # Diagnosis for each admission to hospital
-    df_diagcode = pd.read_csv('/home/jovyan/parallel_final_project/mimicIII/DIAGNOSES_ICD/DIAGNOSES_ICD_sorted.csv')
+    df_diagcode = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/DIAGNOSES_ICD/DIAGNOSES_ICD_sorted.csv')
     # Intensive Care Unit (ICU) for each admission to hospital
-    df_icu = pd.read_csv('/home/jovyan/parallel_final_project/mimicIII/ICUSTAYS/ICUSTAYS_sorted.csv')
+    df_icu = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/ICUSTAYS/ICUSTAYS_sorted.csv')
     return df, df_pat, df_diagcode, df_icu
 
 # Feature engineering for Length of Stay (LOS)
@@ -62,16 +68,20 @@ def process_death(df):
 
 # Ethnicity Column Reduction
 def process_ethnicity(df):
-    df['ETHNICITY'].replace(regex=r'^ASIAN\D*', value='ASIAN', inplace=True)
-    df['ETHNICITY'].replace(regex=r'^WHITE\D*', value='WHITE', inplace=True)
-    df['ETHNICITY'].replace(regex=r'^HISPANIC\D*', value='HISPANIC/LATINO', inplace=True)
-    df['ETHNICITY'].replace(regex=r'^BLACK\D*', value='BLACK/AFRICAN AMERICAN', inplace=True)
-    df['ETHNICITY'].replace(['UNABLE TO OBTAIN', 'OTHER', 'PATIENT DECLINED TO ANSWER', 
-                             'UNKNOWN/NOT SPECIFIED'], value='OTHER/UNKNOWN', inplace=True)
+    # Directly assign the replacements back to df['ETHNICITY']
+    df['ETHNICITY'] = df['ETHNICITY'].replace(regex=r'^ASIAN\D*', value='ASIAN')
+    df['ETHNICITY'] = df['ETHNICITY'].replace(regex=r'^WHITE\D*', value='WHITE')
+    df['ETHNICITY'] = df['ETHNICITY'].replace(regex=r'^HISPANIC\D*', value='HISPANIC/LATINO')
+    df['ETHNICITY'] = df['ETHNICITY'].replace(regex=r'^BLACK\D*', value='BLACK/AFRICAN AMERICAN')
+    df['ETHNICITY'] = df['ETHNICITY'].replace(
+        ['UNABLE TO OBTAIN', 'OTHER', 'PATIENT DECLINED TO ANSWER', 'UNKNOWN/NOT SPECIFIED'],
+        value='OTHER/UNKNOWN'
+    )
 
     # Further compress the categories by grouping the remaining into 'OTHER/UNKNOWN'
-    df.loc[~df['ETHNICITY'].isin(df['ETHNICITY'].value_counts().nlargest(5).index.tolist()), 'ETHNICITY'] = 'OTHER/UNKNOWN'
-    
+    ethnicity_counts = df['ETHNICITY'].value_counts().nlargest(5).index.tolist()
+    df.loc[~df['ETHNICITY'].isin(ethnicity_counts), 'ETHNICITY'] = 'OTHER/UNKNOWN'
+
     return df
 
 # Religion Column Reduction
@@ -133,8 +143,9 @@ def process_icd(df, df_diagcode):
     hadm_list = df_diagcode.groupby('HADM_ID')['CAT'].apply(list).reset_index()
     
     # Convert diagnoses list into hospital admission-item matrix
-    hadm_item = pd.get_dummies(hadm_list['CAT'].apply(pd.Series).stack()).sum(level=0)
-    
+    #hadm_item = pd.get_dummies(hadm_list['CAT'].apply(pd.Series).stack()).sum(level=0)
+    hadm_item = pd.get_dummies(hadm_list['CAT'].apply(pd.Series).stack()).groupby(level=0).sum()
+
     # Join back with HADM_ID, will merge with main admissions DF later
     hadm_item = hadm_item.join(hadm_list['HADM_ID'], how="outer")
     
@@ -250,12 +261,12 @@ def train_models(X_train, X_test, y_train, y_test):
     lr_preds = lr_model.predict(X_test)
 
     # Random Forest
-    rf_model = RandomForestRegressor()
+    rf_model = RandomForestRegressor(n_jobs=1)
     rf_model.fit(X_train, y_train)
     rf_preds = rf_model.predict(X_test)
 
     # XGBoost
-    xgb_model = XGBRegressor()
+    xgb_model = XGBRegressor(n_jobs=1)
     xgb_model.fit(X_train, y_train)
     xgb_preds = xgb_model.predict(X_test)
 
