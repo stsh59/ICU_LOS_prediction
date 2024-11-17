@@ -9,7 +9,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["XGBOOST_NUM_THREADS"] = "1"
 
 import time
-import zipfile
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,27 +22,30 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 
+# Task timing dictionary
+task_times = {}
 
-## Function to unzip data
-#def unzip_data(zip_file_path, extract_dir):
-#    if not os.path.exists(extract_dir):
-#        os.makedirs(extract_dir)
-#
-#    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-#        zip_ref.extractall(extract_dir)
-    
-#    print(f"Extracted all files to {extract_dir}")
+def time_task(task_name, func, *args, **kwargs):
+    """
+    Utility to measure and record the execution time of a task.
+    """
+    start_time = time.time()
+    result = func(*args, **kwargs)
+    end_time = time.time()
+    task_times[task_name] = end_time - start_time
+    print(f"{task_name} completed in {task_times[task_name]:.2f} seconds")
+    return result
 
 # Function to load datasets
 def load_data():
     # Primary Admissions information
-    df = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/ADMISSIONS/ADMISSIONS_sorted.csv')
+    df = pd.read_csv('/Users/satish/Documents/parallel_final_project/newmimic/ADMISSIONS/admissions_doubled.csv')
     # Patient specific info such as gender
-    df_pat = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/PATIENTS/PATIENTS_sorted.csv')
+    df_pat = pd.read_csv('/Users/satish/Documents/parallel_final_project/newmimic/PATIENTS/patients_doubled.csv')
     # Diagnosis for each admission to hospital
-    df_diagcode = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/DIAGNOSES_ICD/DIAGNOSES_ICD_sorted.csv')
+    df_diagcode = pd.read_csv('/Users/satish/Documents/parallel_final_project/newmimic/DIAGNOSES_ICD/icd_doubled.csv')
     # Intensive Care Unit (ICU) for each admission to hospital
-    df_icu = pd.read_csv('/Users/satish/Documents/parallel_final_project/mimicIII/ICUSTAYS/ICUSTAYS_sorted.csv')
+    df_icu = pd.read_csv('/Users/satish/Documents/parallel_final_project/newmimic/ICUSTAYS/icustays_doubled.csv')
     return df, df_pat, df_diagcode, df_icu
 
 # Feature engineering for Length of Stay (LOS)
@@ -57,8 +60,10 @@ def process_los(df):
     
     # Pre-emptively drop some columns that are no longer needed
     df = df.copy()
-    df.drop(columns=['DISCHTIME', 'ROW_ID', 'EDREGTIME', 'EDOUTTIME', 
-                     'HOSPITAL_EXPIRE_FLAG', 'HAS_CHARTEVENTS_DATA'], inplace=True)
+    #df.drop(columns=['DISCHTIME', 'ROW_ID', 'EDREGTIME', 'EDOUTTIME',
+    #                 'HOSPITAL_EXPIRE_FLAG', 'HAS_CHARTEVENTS_DATA'], inplace=True)
+    df.drop(columns=['DISCHTIME', 'EDREGTIME', 'EDOUTTIME',
+                     'HOSPITAL_EXPIRE_FLAG'], inplace=True)
     return df
 
 # Feature Engineering for Deceased Column
@@ -298,48 +303,50 @@ def print_evaluation(mse, rmse, mae, r2, mape, evs, msle):
     print(f'Mean Squared Logarithmic Error (MSLE): {msle}')
 
 # Main function to run the pipeline
+# Main function to run the pipeline
 def main():
-    start_time = time.time()  # Record start time
+    start_time = time.time()
 
-    ## Define paths
-    #zip_file_path = '/home/jovyan/parallel_final_project/mimicIII_10000.zip'
-    #extract_dir = '/home/jovyan/parallel_final_project/mimicIII'
-    #base_dir = '/home/jovyan/parallel_final_project/mimicIII'
-    
-    ## Unzip data
-    #unzip_data(zip_file_path, extract_dir)
-    
-    # Load data
-    df, df_pat, df_diagcode, df_icu = load_data()
-    
-    # Feature engineering and data processing
-    df = process_los(df)
-    df = process_death(df)
-    df = process_ethnicity(df)
-    df = process_religion(df)
-    df = process_admissions(df)
-    df = process_icd(df, df_diagcode)
-    df = process_patients(df, df_pat)
-    df = process_age(df)
-    df = process_icu(df, df_icu)
-    
-    # Preprocess data
-    features_scaled, LOS_log = preprocess_data(df)
-    
-    # Split data into train and test sets
+    # Task 1: Data Loading and Processing
+    print("Starting Data Processing...")
+    df, df_pat, df_diagcode, df_icu = time_task("Load Data", load_data)
+    df = time_task("Process Length of Stay", process_los, df)
+    df = time_task("Process Death", process_death, df)
+    df = time_task("Process Ethnicity", process_ethnicity, df)
+    df = time_task("Process Religion", process_religion, df)
+    df = time_task("Process Admissions", process_admissions, df)
+    df = time_task("Process ICD Codes", process_icd, df, df_diagcode)
+    df = time_task("Process Patients", process_patients, df, df_pat)
+    df = time_task("Process Age", process_age, df)
+    df = time_task("Process ICU", process_icu, df, df_icu)
+    features_scaled, LOS_log = time_task("Preprocess Data", preprocess_data, df)
+
+    # Task 2: Model Training
+    print("\nStarting Model Training...")
     X_train, X_test, y_train, y_test = train_test_split(features_scaled, LOS_log, test_size=0.2, random_state=42)
-    
-    # Train models and evaluate
-    final_preds = train_models(X_train, X_test, y_train, y_test)
-    
-    #Evaluation Metrices
-    mse, rmse, mae, r2, mape, evs, msle = evaluation_metrics(y_test, final_preds)
-    
+    final_preds = time_task("Model Training", train_models, X_train, X_test, y_train, y_test)
+
+    # Task 3: Prediction and Evaluation
+    print("\nStarting Prediction and Evaluation...")
+    mse, rmse, mae, r2, mape, evs, msle = time_task("Evaluation Metrics", evaluation_metrics, y_test, final_preds)
     print_evaluation(mse, rmse, mae, r2, mape, evs, msle)
-    
-    end_time = time.time()  # Record end time
-    total_time = end_time - start_time  # Calculate the difference
-    print(f'Total execution time: {total_time:.2f} seconds')
+
+    # Total pipeline execution time
+    total_time = time.time() - start_time
+    print(f"\nTotal Execution Time: {total_time:.2f} seconds")
+
+    # Task timing summary
+    print("\nTask Timing Summary:")
+    for task, duration in task_times.items():
+        print(f"{task}: {duration:.2f} seconds")
+
+    # Save task timings to a DataFrame
+    timing_df = pd.DataFrame(list(task_times.items()), columns=['Task', 'Time (s)'])
+
+    # Save the DataFrame to a CSV file
+    timing_df.to_csv("serial_timing_summary.csv", index=False)
+    print("\nTask timings saved to 'serial_timing_summary.csv'.")
+
 
 # Entry point
 if __name__ == "__main__":

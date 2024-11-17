@@ -1,0 +1,10 @@
+Task,Time (s)
+Data Loading,0.2518439292907715
+Data Processing,1.0314528942108154
+Merging and Processing Data,1.0128149032592773
+Preprocessing Data,0.0808100700378418
+Splitting Data,0.009884834289550781
+Model Training,8.305623054504395
+Making Predictions,0.8001620769500732
+Evaluation,0.0010409355163574219
+Total Execution Time,12.09426212310791
